@@ -1,0 +1,911 @@
+<html><head><base href="https://codepen.io/CinnamonShrine/pen/xxzXpbo" target="_self">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/5.0.0/normalize.min.css">
+<style>
+body {
+  background: black;
+  color: #00aa00; 
+  font-family: monospace;
+  line-height: 1.2;
+  font-size: 12px;
+  text-align: center;
+  padding-top: 20px;
+  margin: 0;
+  overflow: hidden;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+@media (min-width: 768px) {
+  body {
+    font-size: 16px;
+    padding-top: 40px;
+  }
+}
+
+.button-container {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.button-container div {
+  display: flex;
+  gap: 10px;
+}
+
+button {
+  background-color: #00aa00;
+  border: none;
+  color: black;
+  padding: 10px 20px;
+  text-align: center;
+  font-size: 16px;
+  margin: 4px 2px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+#cctv-container {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  z-index: 1;
+}
+
+.cctv-view {
+  width: 200px;
+  height: 150px;
+  background: #000;
+  border: 2px solid #00aa00;
+}
+</style>
+</head>
+<body>
+<div id="scene"></div>
+
+<div class="button-container">
+  <div>
+    <button id="randomizeBtn">Randomize City</button>
+    <button id="toggleSensors">Toggle Sensors</button>
+  </div>
+  <div>
+    <button id="toggleCCTVView">Toggle CCTV View</button>
+    <button id="changeCCTVTargets">Change CCTV Targets</button>
+  </div>
+  <div>
+    <button id="toggleObjectDetection">Toggle Citizen Information</button>
+    <input type="text" id="terminal" placeholder="Enter command...">
+  </div>
+  <div>
+    <button id="hackButton">HACK</button>
+    <button id="helpButton">Help</button>
+  </div>
+</div>
+
+<div id="cctv-container"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+var randomizeBtn = document.getElementById("randomizeBtn");
+var toggleSensors = document.getElementById("toggleSensors");
+var toggleCCTVView = document.getElementById("toggleCCTVView");
+var changeCCTVTargets = document.getElementById("changeCCTVTargets");
+var toggleObjectDetection = document.getElementById("toggleObjectDetection");
+var hackButton = document.getElementById("hackButton");
+var helpButton = document.getElementById("helpButton");
+
+// Add a variable to track if the hack is enabled
+var hackEnabled = false;
+
+// Add an event listener for the terminal input
+var terminal = document.getElementById('terminal');
+terminal.addEventListener('keydown', function(event) {
+  if (event.key === 'Enter') {
+    var command = terminal.value;
+    if (!hackEnabled && command === 'nsdos') {
+      hackEnabled = true;
+      terminal.value = '';
+      alert('Hack enabled! You have 5 seconds to press the HACK button.');
+      setTimeout(function() {
+        if (!hackStartTime) {
+          alert('Time\'s up! Drones are killing all pedestrians and cars!');
+          killPedestriansAndCars();
+        }
+        hackEnabled = false;
+      }, 5000);
+    } else {
+      terminal.value = '';
+      alert('Invalid password. Hack not enabled. You have no more attempts.');
+      terminal.disabled = true; // Disable further input
+      setTimeout(function() {
+        alert('Drones are attacking the city!');
+        killPedestriansAndCars();
+      }, 1000);
+    }
+  }
+});
+
+var objectDetectionEnabled = false;
+function toggleObjectDetectionMode() {
+  objectDetectionEnabled = !objectDetectionEnabled;
+}
+toggleObjectDetection.addEventListener('click', toggleObjectDetectionMode);
+
+var moveForward = false;
+var moveBackward = false;
+var moveLeft = false;
+var moveRight = false;
+
+function onKeyDown(event) {
+  switch (event.keyCode) {
+    case 38: // up
+    case 87: // w
+      moveForward = true;
+      break;
+    case 37: // left
+    case 65: // a
+      moveLeft = true;
+      break;
+    case 40: // down
+    case 83: // s
+      moveBackward = true;
+      break;
+    case 39: // right
+    case 68: // d
+      moveRight = true;
+      break;
+  }
+}
+
+function onKeyUp(event) {
+  switch (event.keyCode) {
+    case 38: // up
+    case 87: // w
+      moveForward = false;
+      break;
+    case 37: // left 
+    case 65: // a
+      moveLeft = false;
+      break;
+    case 40: // down
+    case 83: // s
+      moveBackward = false;
+      break;
+    case 39: // right
+    case 68: // d
+      moveRight = false;
+      break;
+  }
+}
+
+document.addEventListener('keydown', onKeyDown, false);
+document.addEventListener('keyup', onKeyUp, false);
+
+var scene = new THREE.Scene();
+var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+var renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.getElementById('scene').appendChild(renderer.domElement);
+
+var city = new THREE.Group();
+scene.add(city);
+
+var carIdCounter = 1;
+
+// Define the pedestrians array
+var pedestrians = [];
+
+// Add a timestamp to track the last refresh
+var lastPedestrianRefresh = Date.now();
+
+// Create a function to generate pedestrians
+function createPedestrian() {
+  var geometry = new THREE.BoxGeometry(0.4, 1, 0.4);
+  var material = new THREE.MeshBasicMaterial({color: 0xffff00, wireframe: true});
+  var pedestrian = new THREE.Mesh(geometry, material);
+  
+  pedestrian.position.set(
+    Math.random() * 40 - 20,
+    0.5,
+    Math.random() * 40 - 20  
+  );
+  
+  pedestrian.direction = new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+  
+  pedestrian.info = {
+    age: Math.floor(Math.random() * 58) + 22,
+    job: ['Teacher', 'Engineer', 'Doctor', 'Salesperson', 'Manager'][Math.floor(Math.random() * 5)],
+    politics: ['Liberal', 'Conservative', 'Moderate'][Math.floor(Math.random() * 3)]
+  };
+  
+  return pedestrian;
+}
+
+// Continuously generate new pedestrians every 5 seconds
+function continuouslyGeneratePedestrians() {
+  var newPedestrian = createPedestrian();
+  city.add(newPedestrian);
+  pedestrians.push(newPedestrian);
+  removePedestrianAfterDelay(newPedestrian);
+  setTimeout(continuouslyGeneratePedestrians, 5000);
+}
+continuouslyGeneratePedestrians();
+
+// Remove pedestrians after 20 seconds
+function removePedestrianAfterDelay(pedestrian) {
+  setTimeout(function() {
+    city.remove(pedestrian);
+    pedestrians.splice(pedestrians.indexOf(pedestrian), 1);
+  }, 20000);
+}
+
+// Remove all existing pedestrians
+pedestrians.forEach(function(pedestrian) {
+  city.remove(pedestrian);
+});
+pedestrians = [];
+
+// Generate new pedestrians with updated age range
+for (var i = 0; i < 100; i++) {
+  var pedestrian = createPedestrian();
+  city.add(pedestrian);
+  pedestrians.push(pedestrian);
+}
+
+function createBuilding() {
+  var geometry = new THREE.BoxGeometry(1, 1, 1);
+  var material = new THREE.MeshBasicMaterial({color: 0x00aa00, wireframe: true});
+  var building = new THREE.Mesh(geometry, material);
+  
+  building.scale.y = Math.random() * 2 + 0.5;
+  
+  return building;
+}
+
+function generateCity() {
+  for(var i = 0; i < 20; i++) {
+    for(var j = 0; j < 20; j++) {
+      var building = createBuilding();
+      building.position.x = (i - 10) * 2;
+      building.position.z = (j - 10) * 2;
+      city.add(building);
+    }
+  }
+}
+
+generateCity();
+
+camera.position.y = 5;
+camera.position.z = 10;
+camera.rotation.x = -0.2;
+
+function createDrone() {
+  var geometry = new THREE.BoxGeometry(0.5, 0.2, 0.5);
+  var material = new THREE.MeshBasicMaterial({color: 0xff0000, wireframe: true});
+  var drone = new THREE.Mesh(geometry, material);
+  
+  drone.position.set(
+    Math.random() * 40 - 20,
+    Math.random() * 10 + 5, 
+    Math.random() * 40 - 20
+  );
+  
+  var propellerGeometry = new THREE.BoxGeometry(0.2, 0.02, 0.2);
+  var propellerMaterial = new THREE.MeshBasicMaterial({color: 0xffffff, wireframe: true});
+  var propeller = new THREE.Mesh(propellerGeometry, propellerMaterial);
+  propeller.position.set(0, 0.15, 0);  
+  drone.add(propeller);
+  
+  drone.propeller = propeller;
+  
+  return drone;
+}
+
+var drones = [];
+for (var i = 0; i < 30; i++) {
+  var drone = createDrone();
+  city.add(drone);
+  drones.push(drone); 
+}
+
+var lines = [];
+
+function createLine(startPos, endPos) {
+  var material = new THREE.LineBasicMaterial({color: 0x00ff00});
+  var geometry = new THREE.BufferGeometry().setFromPoints([startPos, endPos]);
+  var line = new THREE.Line(geometry, material);
+  return line;
+}
+
+function animateCommunication() {
+  for(var i = 0; i < drones.length; i++) {
+    var drone = drones[i];
+    
+    var building = city.children[Math.floor(Math.random() * city.children.length)];
+    
+    var line = createLine(drone.position, building.position);
+    city.add(line);
+    lines.push(line);
+    
+    setTimeout(function(line) {
+      city.remove(line); 
+      lines.splice(lines.indexOf(line), 1);
+    }, 500, line);
+  }
+}
+
+function createCar(id) {
+  var colors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x00ffff];
+  var color = colors[Math.floor(Math.random() * colors.length)];
+  var material = new THREE.MeshBasicMaterial({color: color, wireframe: true});
+  var car = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 1), material);
+  
+  car.carId = id;
+  car.maxSpeed = Math.random() * 0.05 + 0.02;
+  
+  return car;
+}
+
+var cars = [];
+var roads = [];
+
+function generateRoads() {
+  var roadGeometry = new THREE.PlaneGeometry(2, 40);
+  var roadMaterial = new THREE.MeshBasicMaterial({color: 0x444444, side: THREE.DoubleSide});
+
+  for(var i = 0; i < 5; i++) {
+    var road = new THREE.Mesh(roadGeometry, roadMaterial);
+    road.rotation.x = -Math.PI / 2;
+    road.position.x = (i - 2) * 5;
+    road.position.y = 0.1;
+    city.add(road);
+    roads.push(road);
+  }
+
+  var crossStreetGeometry = new THREE.PlaneGeometry(40, 2);
+  for(var i = 0; i < 5; i++) {
+    var crossStreet = new THREE.Mesh(crossStreetGeometry, roadMaterial);
+    crossStreet.rotation.x = -Math.PI / 2;
+    crossStreet.position.z = (i - 2) * 5;
+    crossStreet.position.y = 0.1;
+    city.add(crossStreet);
+    roads.push(crossStreet);
+  }
+}
+
+generateRoads();
+
+function generateCars() {
+  for(var i = 0; i < roads.length; i++) {
+    var road = roads[i];
+    var numCars = Math.floor(Math.random() * 25) + 20;
+
+    for(var j = 0; j < numCars; j++) {
+      var car = createCar(carIdCounter);
+      carIdCounter++;
+
+      if (road.geometry.parameters.width > road.geometry.parameters.height) {
+        car.position.set(
+          Math.random() * road.geometry.parameters.width - road.geometry.parameters.width / 2,
+          0.25,
+          road.position.z
+        );
+        car.rotation.y = Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2;
+      } else {
+        car.position.set(
+          road.position.x,
+          0.25,
+          Math.random() * road.geometry.parameters.height - road.geometry.parameters.height / 2  
+        );
+      }
+
+      city.add(car);
+      cars.push(car);
+    }
+  }
+}
+
+generateCars();
+
+function continuouslyGenerateCars() {
+  var newCar = createCar(carIdCounter);
+  carIdCounter++;
+
+  var randomRoad = roads[Math.floor(Math.random() * roads.length)];
+
+  if (randomRoad.geometry.parameters.width > randomRoad.geometry.parameters.height) {
+    newCar.position.set(
+      Math.random() * randomRoad.geometry.parameters.width - randomRoad.geometry.parameters.width / 2,
+      0.25,
+      randomRoad.position.z
+    );
+    newCar.rotation.y = Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2;
+  } else {
+    newCar.position.set(
+      randomRoad.position.x, 
+      0.25,
+      Math.random() * randomRoad.geometry.parameters.height - randomRoad.geometry.parameters.height / 2
+    );
+  }
+
+  city.add(newCar);
+  cars.push(newCar);
+
+  setTimeout(continuouslyGenerateCars, 2000);
+}
+
+// Start continuously generating cars
+continuouslyGenerateCars();
+
+function animateTraffic() {
+  for(var i = 0; i < cars.length; i++) {
+    var car = cars[i];
+    var speed = car.maxSpeed;
+
+    var direction = new THREE.Vector3(
+      Math.sin(car.rotation.y),
+      0,
+      Math.cos(car.rotation.y)
+    );
+
+    car.position.add(direction.multiplyScalar(speed));
+
+    if (
+      car.position.x < -20 || car.position.x > 20 ||
+      car.position.z < -20 || car.position.z > 20
+    ) {
+      city.remove(car);
+      cars.splice(i, 1);
+      i--;
+    }
+  }  
+}
+
+function animatePedestrians() {
+  if (Date.now() - lastPedestrianRefresh > 5000) {
+    for(var i = 0; i < pedestrians.length; i++) {
+      var pedestrian = pedestrians[i];
+      pedestrian.direction = new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+    }
+    lastPedestrianRefresh = Date.now();
+  }
+
+  for(var i = 0; i < pedestrians.length; i++) {
+    var pedestrian = pedestrians[i];
+
+    var speed = 0.05;
+
+    var direction = pedestrian.direction;
+
+    var raycaster = new THREE.Raycaster(pedestrian.position, direction);
+    var intersects = raycaster.intersectObjects(city.children.concat(pedestrians));
+
+    if (intersects.length > 1 && intersects[1].distance < 0.5) {
+      speed = 0;
+    }
+
+    pedestrian.position.add(direction.multiplyScalar(speed));
+
+    pedestrian.position.x = Math.max(-19, Math.min(19, pedestrian.position.x));
+    pedestrian.position.z = Math.max(-19, Math.min(19, pedestrian.position.z));
+
+    pedestrian.rotation.y = Math.atan2(-direction.x, -direction.z);
+  }
+}
+
+var sensors = [];
+
+function createSensor(obj) {
+  var geometry = new THREE.SphereGeometry(0.2);
+  var material = new THREE.MeshBasicMaterial({color: 0xff00ff, wireframe: true});
+  var sensor = new THREE.Mesh(geometry, material);
+  
+  sensor.position.copy(obj.position);
+  sensor.position.y += obj.geometry.parameters.height / 2 + 0.5;
+  
+  return sensor;  
+}
+
+function generateSensors() {
+  city.children.forEach(function(obj) {
+    if (obj.geometry.type === 'BoxGeometry') {  
+      var sensor = createSensor(obj);
+      city.add(sensor);
+      sensors.push(sensor);
+    }
+  });  
+}
+
+var sensorsVisible = false;
+function toggleSensorsVisibility() {
+  sensorsVisible = !sensorsVisible;
+  sensors.forEach(function(sensor) {
+    sensor.visible = sensorsVisible;
+  });
+}
+toggleSensors.addEventListener('click', toggleSensorsVisibility);
+
+generateSensors();
+
+function animateSensors() {
+  sensors.forEach(function(sensor) {
+    sensor.rotation.y -= 0.05; 
+  });
+}
+
+function createTrafficLight() {
+  var poleGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2);
+  var poleMaterial = new THREE.MeshBasicMaterial({color: 0xaaaaaa, wireframe: true});
+  var pole = new THREE.Mesh(poleGeometry, poleMaterial);
+  
+  var lightGeometry = new THREE.BoxGeometry(0.2, 0.6, 0.2);
+  var redMaterial = new THREE.MeshBasicMaterial({color: 0xff0000, wireframe: true});
+  var yellowMaterial = new THREE.MeshBasicMaterial({color: 0xffff00, wireframe: true});
+  var greenMaterial = new THREE.MeshBasicMaterial({color: 0x00ff00, wireframe: true});
+  
+  var redLight = new THREE.Mesh(lightGeometry, redMaterial);
+  var yellowLight = new THREE.Mesh(lightGeometry, yellowMaterial); 
+  var greenLight = new THREE.Mesh(lightGeometry, greenMaterial);
+  
+  redLight.position.y = 0.5;
+  greenLight.position.y = -0.5;
+  
+  var trafficLight = new THREE.Group();
+  trafficLight.add(pole);
+  trafficLight.add(redLight);
+  trafficLight.add(yellowLight);
+  trafficLight.add(greenLight);
+  
+  trafficLight.red = redLight;
+  trafficLight.yellow = yellowLight;
+  trafficLight.green = greenLight;
+  
+  return trafficLight;
+}
+
+var trafficLights = [];
+
+function generateTrafficLights() {
+  for (var i = 0; i < 4; i++) {
+    var trafficLight = createTrafficLight();
+    trafficLight.position.set(
+      i % 2 === 0 ? -8 : 8, 
+      1.6, 
+      i < 2 ? -10 : 10
+    );
+    trafficLight.rotation.y = i < 2 ? Math.PI / 2 : -Math.PI / 2;
+    city.add(trafficLight);
+    trafficLights.push(trafficLight);
+  }  
+}
+
+generateTrafficLights();
+
+var currentLightState = 0;
+var lightStates = [
+  [true, false, false],
+  [true, true, false],
+  [false, false, true],
+  [false, true, false]
+];
+
+function animateTrafficLights() {
+  trafficLights.forEach(function(trafficLight) {
+    var state = lightStates[currentLightState];
+    trafficLight.red.visible = state[0];
+    trafficLight.yellow.visible = state[1];
+    trafficLight.green.visible = state[2];
+  });
+  
+  currentLightState = (currentLightState + 1) % 4;
+}
+
+setInterval(animateTrafficLights, 3000);
+
+function smartBehavior() {
+  var trafficDensity = cars.length / roads.length;
+  var greenLightDuration = Math.max(3000, 6000 - trafficDensity * 3000);
+  
+  if (currentLightState === 0) {
+    setTimeout(animateTrafficLights, greenLightDuration);
+  } else {
+    setTimeout(animateTrafficLights, 1000);
+  }
+
+  var highTrafficRoads = roads.filter(function(road) {
+    return road.children.length > 5;
+  });
+
+  highTrafficRoads.forEach(function(road) {
+    var drone = drones[Math.floor(Math.random() * drones.length)];
+    drone.position.x = road.position.x;
+    drone.position.z = road.position.z;
+  });
+  
+  drones.forEach(function(drone) {
+    var raycaster = new THREE.Raycaster(drone.position, new THREE.Vector3(0, -1, 0));
+    var intersects = raycaster.intersectObjects(city.children);
+    
+    if (intersects.length > 0) {
+      drone.position.y = intersects[0].object.scale.y + 5;
+    }
+  });
+}
+
+var cctvContainer = document.getElementById('cctv-container');
+
+function createCCTVCamera() {
+  var topViewCamera = new THREE.PerspectiveCamera(75, 1.33, 0.1, 1000);
+  topViewCamera.position.set(0, 20, 0);
+  topViewCamera.rotation.x = -Math.PI / 2;
+
+  var followingCamera = new THREE.PerspectiveCamera(75, 1.33, 0.1, 1000);
+  
+  var cctv = {
+    topViewCamera: topViewCamera,
+    followingCamera: followingCamera,
+    target: null,
+    currentView: 'topView'
+  };
+
+  return cctv;
+}
+
+var cctvCameras = [];
+
+for (var i = 0; i < 4; i++) {
+  var cctvCamera = createCCTVCamera();
+  cctvCameras.push(cctvCamera);
+  
+  var cctvView = document.createElement('div');
+  cctvView.className = 'cctv-view';
+  cctvContainer.appendChild(cctvView);
+
+  var cctvRenderer = new THREE.WebGLRenderer({alpha: true});
+  cctvRenderer.setSize(200, 150);
+  cctvView.appendChild(cctvRenderer.domElement);
+
+  cctvCamera.renderer = cctvRenderer;
+}
+
+function isTargetOnMap(target) {
+  return (
+    target.position.x >= -20 && target.position.x <= 20 &&
+    target.position.z >= -20 && target.position.z <= 20
+  );
+}
+
+function animateCCTV() {
+  cctvCameras.forEach(function(cctv) {
+    if (!cctv.target || !isTargetOnMap(cctv.target)) {
+      cctv.target = cars[Math.floor(Math.random() * cars.length)];
+    }
+    
+    if (cctv.currentView === 'topView') {
+      cctv.topViewCamera.position.x = cctv.target.position.x;
+      cctv.topViewCamera.position.z = cctv.target.position.z;
+      cctv.renderer.render(scene, cctv.topViewCamera);
+    } else {
+      cctv.followingCamera.position.copy(cctv.target.position);
+      cctv.followingCamera.position.y += 2;
+      cctv.followingCamera.lookAt(cctv.target.position);
+      cctv.renderer.render(scene, cctv.followingCamera);
+    }
+  });
+}
+
+toggleCCTVView.addEventListener('click', function() {
+  cctvCameras.forEach(function(cctv) {
+    cctv.currentView = cctv.currentView === 'topView' ? 'followingView' : 'topView';
+  });
+});
+
+function changeCCTVCameraTargets() {
+  cctvCameras.forEach(function(cctv) {
+    cctv.target = cars[Math.floor(Math.random() * cars.length)];
+  });
+}
+
+changeCCTVTargets.addEventListener('click', changeCCTVCameraTargets);
+
+var hackStartTime;
+
+function hackCity() {
+  if (!hackEnabled) {
+    alert('Hack not enabled. Please enter the correct command in the terminal.');
+    return;
+  }
+  
+  hackStartTime = Date.now();
+  
+  sensors.forEach(function(sensor, index) {
+    setTimeout(function() {
+      sensor.material.color.setHex(0xff0000);
+      var originalColor = sensor.material.color.getHex();
+      var interval = setInterval(function() {
+        if (sensor.material.color.getHex() === originalColor) {
+          sensor.material.color.setHex(0xff0000);
+        } else {
+          sensor.material.color.setHex(originalColor);
+        }
+      }, 500);
+      setTimeout(function() {
+        clearInterval(interval);
+        sensor.material.color.setHex(originalColor);
+      }, 5000);
+    }, index * 200);
+  });
+
+  setTimeout(function() {
+    drones.forEach(function(drone) {
+      drone.hacked = true;
+      drone.velocity = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.5,
+        (Math.random() - 0.5) * 0.5, 
+        (Math.random() - 0.5) * 0.5
+      );
+      drone.rotation.x = Math.random() * Math.PI * 2;
+      drone.rotation.y = Math.random() * Math.PI * 2;
+      drone.rotation.z = Math.random() * Math.PI * 2;
+    });
+  }, sensors.length * 200 + 5000);
+}
+
+function displayCitizenInfo() {
+  if (!objectDetectionEnabled) return;
+
+  cars.forEach(function(car) {
+    var label = document.createElement('div');
+    if (terminal.disabled) {
+      label.textContent = '💀'; 
+    } else if (Date.now() - hackStartTime > 5000) {
+      label.textContent = '🤬';
+    } else {  
+      label.textContent = 'Car ' + car.carId + ' - ' + (car.maxSpeed * 180).toFixed(1) + ' km/h';
+    }
+    label.style.position = 'absolute';
+    
+    var pos = car.position.clone().project(camera);
+    label.style.left = (pos.x + 1) / 2 * window.innerWidth + 'px';
+    label.style.top = -(pos.y - 1) / 2 * window.innerHeight + 'px';
+
+    document.body.appendChild(label);
+    setTimeout(function() {
+      document.body.removeChild(label);
+    }, 100);
+  });
+
+  pedestrians.forEach(function(pedestrian) {
+    var label = document.createElement('div');
+    if (terminal.disabled) {
+      label.textContent = '💀';
+    } else if (Date.now() - hackStartTime > 5000) {
+      label.textContent = '😡';    
+    } else {
+      label.textContent = 'Pedestrian - Age: ' + pedestrian.info.age + ', Job: ' + pedestrian.info.job + ', Politics: ' + pedestrian.info.politics;
+    }
+    label.style.position = 'absolute';
+    
+    var pos = pedestrian.position.clone().project(camera);
+    label.style.left = (pos.x + 1) / 2 * window.innerWidth + 'px';
+    label.style.top = -(pos.y - 1) / 2 * window.innerHeight + 'px';
+
+    document.body.appendChild(label);
+    setTimeout(function() {
+      document.body.removeChild(label);
+    }, 100);
+  });
+}
+
+hackButton.addEventListener('click', function() {
+  var confirmed = confirm("Do you want to HACK the city?");
+  if (confirmed) {
+    hackCity();
+  }
+});
+
+// Add a function to kill all pedestrians and cars
+function killPedestriansAndCars() {
+  pedestrians.forEach(function(pedestrian) {
+    city.remove(pedestrian);
+  });
+  pedestrians = [];
+
+  cars.forEach(function(car) {
+    city.remove(car);
+  });
+  cars = [];
+}
+
+helpButton.addEventListener('click', function() {
+  alert("Welcome to the Cyberpunk City Simulator!\n\n" +
+        "Instructions:\n" +
+        "- Click 'Randomize City' to generate a new city layout\n" +
+        "- 'Toggle Sensors' shows/hides the sensor spheres on buildings\n" +
+        "- 'Toggle CCTV View' switches between top-down and follow camera views\n" +
+        "- 'Change CCTV Targets' selects new cars for the CCTV cameras to follow\n" + 
+        "- 'Toggle Citizen Information' displays data about cars and pedestrians\n\n" +
+        "Hacking:\n" +
+        "- Type the correct password in the terminal  to enable the HACK button\n" + 
+        "- Click the HACK button to initiate the hacking sequence\n" +
+        "- If successful, sensors will turn red and drones will behave erratically\n" +
+        "- If you fail to enter the password in time, drones will eliminate all cars and pedestrians!\n\n" +
+        "Explore the city, uncover its secrets, and choose your path wisely...");
+});
+
+// Animate function and other existing logic goes below
+function animate() {
+  requestAnimationFrame(animate);
+  
+  renderer.render(scene, camera);
+
+  for(var i = 0; i < drones.length; i++) {
+    drones[i].propeller.rotation.y += 0.2;
+
+    if (drones[i].hacked) {
+      drones[i].position.add(drones[i].velocity);
+      drones[i].rotation.x += 0.05;
+      drones[i].rotation.y += 0.05;
+      drones[i].rotation.z += 0.05;
+
+      if (drones[i].position.x < -30 || drones[i].position.x > 30 ||
+          drones[i].position.y < 0 || drones[i].position.y > 40 || 
+          drones[i].position.z < -30 || drones[i].position.z > 30) {
+        
+        drones[i].velocity.negate();
+      }
+
+    } else {
+      drones[i].position.y = Math.sin(Date.now() * 0.001 + i) * 1 + 8;
+    }
+  }
+  
+  if(Math.random() < 0.05) {
+    animateCommunication();
+  }
+  
+  for(var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var opacityDelta = Date.now() * 0.001 - Math.floor(Date.now() * 0.001);
+    line.material.opacity = 1 - opacityDelta * 2;  
+  }
+
+  animateTraffic();
+  animatePedestrians();
+  animateSensors();
+  smartBehavior();
+  animateCCTV();
+  displayCitizenInfo();
+};
+
+animate();
+
+function onWindowResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+window.addEventListener('resize', onWindowResize);
+
+randomizeBtn.addEventListener('click', function() {
+  for(var i = 0; i < city.children.length; i++) {
+    city.children[i].scale.y = Math.random() * 2 + 0.5;
+  }
+});
+
+</script>
+</body>
+</html>
